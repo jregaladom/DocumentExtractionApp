@@ -34,24 +34,56 @@ Texto original:
         return result.ToString();
     }
 
-    public async Task<DocumentAnalysisResult?> AnalyzeTextAsync(string cleanedText, string fileName)
+    public async Task<string> ClassifyDocumentAsync(string cleanedText, List<DocumentTypeConfig> documentTypes)
     {
-        Console.WriteLine($"Analizando conceptos y clasificando documento: {fileName}...");
+        Console.WriteLine("Clasificando documento...");
+        var rulesConfig = JsonSerializer.Serialize(documentTypes.Select(dt => new { dt.Name, dt.ClassificationRules }));
+        
         var prompt = @"
-Analiza el siguiente documento de texto y extrae la información en un formato JSON estricto.
-El JSON debe contener:
-- fileName: El nombre del archivo (usa el proporcionado: {{$fileName}}).
-- documentType: Clasifica qué tipo de documento es de acuerdo a su contenido (ej. Factura, Contrato, Reporte, Currículum, etc.).
-- concepts: Una lista de objetos donde cada uno tiene 'name' (nombre del concepto/entidad encontrado) y 'value' (el valor asociado).
+Analiza el siguiente documento y determina a cuál de las siguientes categorías pertenece, basándote en las reglas de clasificación proporcionadas.
 
-Texto:
+Categorías y reglas:
+{{$rules}}
+
+Texto del documento:
+{{$input}}
+
+Responde EXCLUSIVAMENTE con el nombre exacto de la categoría (por ejemplo, 'Tipo A'). Si el documento no cumple con ninguna de las reglas, responde exactamente con 'Unclassified'. NO agregues ningún otro texto, puntuación ni explicación.
+";
+        var result = await _kernel.InvokePromptAsync(prompt, new KernelArguments { 
+            ["input"] = cleanedText,
+            ["rules"] = rulesConfig
+        });
+        
+        return result.ToString().Trim();
+    }
+
+    public async Task<DocumentAnalysisResult?> ExtractConceptsAsync(string cleanedText, string fileName, string documentType, string extractionPrompt)
+    {
+        Console.WriteLine($"Extrayendo conceptos para {fileName} como {documentType}...");
+        var prompt = @"
+Analiza el siguiente documento y extrae la información solicitada en un formato JSON estricto.
+
+Instrucciones de extracción:
+{{$extractionPrompt}}
+
+El JSON de respuesta debe tener exactamente esta estructura:
+{
+  ""fileName"": """ + fileName + @""",
+  ""documentType"": """ + documentType + @""",
+  ""concepts"": [
+    { ""name"": ""nombre_del_concepto"", ""value"": ""valor_extraido"" }
+  ]
+}
+
+Texto del documento:
 {{$input}}
 
 Responde EXCLUSIVAMENTE con el objeto JSON, sin formato de markdown (sin ```json) y sin texto adicional.
 ";
         var result = await _kernel.InvokePromptAsync(prompt, new KernelArguments { 
             ["input"] = cleanedText,
-            ["fileName"] = fileName
+            ["extractionPrompt"] = extractionPrompt
         });
 
         var jsonString = result.ToString().Trim();
