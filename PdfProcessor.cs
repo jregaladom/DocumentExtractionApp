@@ -2,6 +2,7 @@ using PdfProcessorApp.Services;
 using System.Text.Json;
 using System.Text.Encodings.Web;
 using System.Text.Unicode;
+using System.Diagnostics;
 
 namespace PdfProcessorApp;
 
@@ -25,26 +26,50 @@ public class PdfProcessor
         string extractedTxtPath = Path.Combine(directory, $"{baseName}_extracted.txt");
         string cleanedTxtPath = Path.Combine(directory, $"{baseName}_cleaned.txt");
         string analysisJsonPath = Path.Combine(directory, $"{baseName}_analysis.json");
+        string reportFilePath = Path.Combine(directory, "processing_report.txt");
 
         try
         {
             Console.WriteLine($"\n--- Procesando: {fileName} ---");
             
+            var totalSw = Stopwatch.StartNew();
+            var stepSw = new Stopwatch();
+
             // 1. Extract text
+            stepSw.Start();
             var (fullText, firstPageText) = await _docIntellService.ExtractTextAsync(pdfPath);
+            stepSw.Stop();
+            var extractionTime = stepSw.Elapsed;
+            
             await File.WriteAllTextAsync(extractedTxtPath, fullText);
             Console.WriteLine($"[✓] Guardado texto crudo (completo) en: {Path.GetFileName(extractedTxtPath)}");
 
             // 1.5 Pre-clean text with C# (solo primera página)
+            stepSw.Restart();
             string preCleanedText = Utils.TextCleaner.PreClean(firstPageText);
 
             // 2. Clean text
             string cleanedText = await _skService.CleanTextAsync(preCleanedText);
+            stepSw.Stop();
+            var cleaningTime = stepSw.Elapsed;
+            
             await File.WriteAllTextAsync(cleanedTxtPath, cleanedText);
             Console.WriteLine($"[✓] Guardado texto limpio en: {Path.GetFileName(cleanedTxtPath)}");
 
             // 3. Analyze text
+            stepSw.Restart();
             var analysisResult = await _skService.AnalyzeTextAsync(cleanedText, fileName);
+            stepSw.Stop();
+            var analysisTime = stepSw.Elapsed;
+
+            totalSw.Stop();
+            var totalTime = totalSw.Elapsed;
+
+            // Generate report
+            string reportLine = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Documento: {fileName} | Extracción: {extractionTime.TotalSeconds:F2}s | Limpieza: {cleaningTime.TotalSeconds:F2}s | Análisis: {analysisTime.TotalSeconds:F2}s | Total: {totalTime.TotalSeconds:F2}s\n";
+            await File.AppendAllTextAsync(reportFilePath, reportLine);
+            Console.WriteLine($"[✓] Reporte de tiempos actualizado en: {Path.GetFileName(reportFilePath)}");
+
             if (analysisResult != null)
             {
                 var options = new JsonSerializerOptions 
