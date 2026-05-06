@@ -21,7 +21,7 @@ public class PdfProcessor
         _documentTypes = documentTypes;
     }
 
-    public async Task<(string FileName, string DocumentType)> ProcessFileAsync(string pdfPath)
+    public async Task<(string FileName, string DocumentType, bool IsComplete, string MissingItems)> ProcessFileAsync(string pdfPath)
     {
         string fileName = Path.GetFileName(pdfPath);
         string directory = Path.GetDirectoryName(pdfPath) ?? string.Empty;
@@ -33,6 +33,8 @@ public class PdfProcessor
         string reportFilePath = Path.Combine(directory, "processing_report.txt");
 
         string identifiedType = "Unclassified";
+        bool isComplete = false;
+        string missingItems = string.Empty;
 
         try
         {
@@ -62,12 +64,21 @@ public class PdfProcessor
             await File.WriteAllTextAsync(cleanedTxtPath, cleanedText);
             Console.WriteLine($"[✓] Guardado texto limpio en: {Path.GetFileName(cleanedTxtPath)}");
 
-            // 3. Classify document
+            // 3. Classify and validate document
             stepSw.Restart();
-            identifiedType = await _skService.ClassifyDocumentAsync(cleanedText, _documentTypes);
+            var classificationResult = await _skService.ClassifyDocumentAsync(cleanedText, _documentTypes);
             stepSw.Stop();
             var classificationTime = stepSw.Elapsed;
-            Console.WriteLine($"[✓] Documento clasificado como: {identifiedType}");
+            
+            identifiedType = classificationResult.DocumentType;
+            isComplete = classificationResult.IsComplete;
+            missingItems = classificationResult.MissingItems;
+
+            Console.WriteLine($"[✓] Documento clasificado como: {identifiedType} (Completo: {isComplete})");
+            if (!isComplete && !string.IsNullOrEmpty(missingItems))
+            {
+                Console.WriteLine($"[!] Faltante: {missingItems}");
+            }
 
             TimeSpan extractionConceptsTime = TimeSpan.Zero;
 
@@ -122,6 +133,6 @@ public class PdfProcessor
             Console.WriteLine($"[x] Error procesando el archivo {fileName}: {ex.Message}");
         }
 
-        return (fileName, identifiedType);
+        return (fileName, identifiedType, isComplete, missingItems);
     }
 }

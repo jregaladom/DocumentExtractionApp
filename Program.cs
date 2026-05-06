@@ -39,7 +39,7 @@ try
 
     Console.WriteLine($"Encontrados {pdfFiles.Length} archivo(s) PDF en '{pdfFolder}'. Iniciando procesamiento...");
 
-    var results = new List<(string FileName, string DocumentType)>();
+    var results = new List<(string FileName, string DocumentType, bool IsComplete, string MissingItems)>();
 
     foreach (var pdfFile in pdfFiles)
     {
@@ -49,7 +49,7 @@ try
 
     // Generate Global Report
     var sb = new StringBuilder();
-    sb.AppendLine("=== REPORTE GLOBAL DE CLASIFICACIÓN ===");
+    sb.AppendLine("=== REPORTE GLOBAL DE CLASIFICACIÓN Y COMPLETITUD ===");
     sb.AppendLine($"Total de documentos procesados: {results.Count}\n");
 
     var knownTypes = docTypes.Select(dt => dt.Name).ToList();
@@ -62,7 +62,8 @@ try
             sb.AppendLine($"[✓] {knownType} - Encontrado en:");
             foreach (var doc in docsOfType)
             {
-                sb.AppendLine($"    - {doc.FileName}");
+                string status = doc.IsComplete ? "(Completo)" : $"(Incompleto - Falta: {doc.MissingItems})";
+                sb.AppendLine($"    - {doc.FileName} {status}");
             }
         }
         else

@@ -34,13 +34,15 @@ Texto original:
         return result.ToString();
     }
 
-    public async Task<string> ClassifyDocumentAsync(string cleanedText, List<DocumentTypeConfig> documentTypes)
+    public async Task<DocumentClassificationResult> ClassifyDocumentAsync(string cleanedText, List<DocumentTypeConfig> documentTypes)
     {
-        Console.WriteLine("Clasificando documento...");
-        var rulesConfig = JsonSerializer.Serialize(documentTypes.Select(dt => new { dt.Name, dt.ClassificationRules }));
+        Console.WriteLine("Clasificando y validando documento...");
+        var rulesConfig = JsonSerializer.Serialize(documentTypes.Select(dt => new { dt.Name, dt.ClassificationRules, dt.ValidationRules }));
         
         var prompt = @"
-Analiza el siguiente documento y determina a cuál de las siguientes categorías pertenece, basándote en las reglas de clasificación proporcionadas.
+Analiza el siguiente documento y realiza dos tareas:
+1. Clasificación: Determina a cuál de las siguientes categorías pertenece.
+2. Validación: Verifica si el documento está completo basándote en sus reglas de validación.
 
 Categorías y reglas:
 {{$rules}}
@@ -48,14 +50,54 @@ Categorías y reglas:
 Texto del documento:
 {{$input}}
 
-Responde EXCLUSIVAMENTE con el nombre exacto de la categoría (por ejemplo, 'Tipo A'). Si el documento no cumple con ninguna de las reglas, responde exactamente con 'Unclassified'. NO agregues ningún otro texto, puntuación ni explicación.
+Debes responder EXCLUSIVAMENTE con un objeto JSON con la siguiente estructura:
+{
+  ""documentType"": ""Nombre de la categoría o 'Unclassified'"",
+  ""isComplete"": true/false,
+  ""missingItems"": ""Descripción de lo que falta si isComplete es false, de lo contrario vacío""
+}
+
+No agregues ningún otro texto, formato markdown (sin ```json) ni explicación.
 ";
         var result = await _kernel.InvokePromptAsync(prompt, new KernelArguments { 
             ["input"] = cleanedText,
             ["rules"] = rulesConfig
         });
         
-        return result.ToString().Trim();
+        var jsonString = CleanJsonResponse(result.ToString());
+        
+        try
+        {
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            return JsonSerializer.Deserialize<DocumentClassificationResult>(jsonString, options) ?? new DocumentClassificationResult();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al deserializar clasificación: {ex.Message}");
+            return new DocumentClassificationResult();
+        }
+    }
+
+    private string CleanJsonResponse(string jsonString)
+    {
+        jsonString = jsonString.Trim();
+        if (jsonString.StartsWith("```json"))
+        {
+            jsonString = jsonString.Substring(7);
+            if (jsonString.EndsWith("```"))
+            {
+                jsonString = jsonString.Substring(0, jsonString.Length - 3);
+            }
+        }
+        else if (jsonString.StartsWith("```"))
+        {
+            jsonString = jsonString.Substring(3);
+            if (jsonString.EndsWith("```"))
+            {
+                jsonString = jsonString.Substring(0, jsonString.Length - 3);
+            }
+        }
+        return jsonString.Trim();
     }
 
     public async Task<DocumentAnalysisResult?> ExtractConceptsAsync(string cleanedText, string fileName, string documentType, string extractionPrompt)
@@ -86,24 +128,7 @@ Responde EXCLUSIVAMENTE con el objeto JSON, sin formato de markdown (sin ```json
             ["extractionPrompt"] = extractionPrompt
         });
 
-        var jsonString = result.ToString().Trim();
-        if (jsonString.StartsWith("```json"))
-        {
-            jsonString = jsonString.Substring(7);
-            if (jsonString.EndsWith("```"))
-            {
-                jsonString = jsonString.Substring(0, jsonString.Length - 3);
-            }
-        }
-        else if (jsonString.StartsWith("```"))
-        {
-            jsonString = jsonString.Substring(3);
-            if (jsonString.EndsWith("```"))
-            {
-                jsonString = jsonString.Substring(0, jsonString.Length - 3);
-            }
-        }
-        jsonString = jsonString.Trim();
+        var jsonString = CleanJsonResponse(result.ToString());
 
         try
         {
