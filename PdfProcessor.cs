@@ -31,12 +31,12 @@ public class PdfProcessor
             Console.WriteLine($"\n--- Procesando: {fileName} ---");
             
             // 1. Extract text
-            string rawText = await _docIntellService.ExtractTextAsync(pdfPath);
-            await File.WriteAllTextAsync(extractedTxtPath, rawText);
-            Console.WriteLine($"[✓] Guardado texto crudo en: {Path.GetFileName(extractedTxtPath)}");
+            var (fullText, firstPageText) = await _docIntellService.ExtractTextAsync(pdfPath);
+            await File.WriteAllTextAsync(extractedTxtPath, fullText);
+            Console.WriteLine($"[✓] Guardado texto crudo (completo) en: {Path.GetFileName(extractedTxtPath)}");
 
-            // 1.5 Pre-clean text with C#
-            string preCleanedText = Utils.TextCleaner.PreClean(rawText);
+            // 1.5 Pre-clean text with C# (solo primera página)
+            string preCleanedText = Utils.TextCleaner.PreClean(firstPageText);
 
             // 2. Clean text
             string cleanedText = await _skService.CleanTextAsync(preCleanedText);
