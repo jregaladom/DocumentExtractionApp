@@ -13,9 +13,48 @@ IConfiguration config = builder.Build();
 
 try
 {
-    var docTypes = config.GetSection("DocumentTypes").Get<List<DocumentTypeConfig>>() ?? new List<DocumentTypeConfig>();
-
     var docIntellService = new DocumentIntelligenceService(config);
+
+    // Mode 1: Direct PDF path via command line argument
+    if (args.Length > 0)
+    {
+        string pdfPath = args[0];
+
+        if (!File.Exists(pdfPath))
+        {
+            Console.WriteLine($"Error: El archivo '{pdfPath}' no existe.");
+            return;
+        }
+
+        if (!pdfPath.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine("Error: El archivo debe ser un PDF.");
+            return;
+        }
+
+        Console.WriteLine($"Procesando archivo: {pdfPath}");
+        var result = await docIntellService.ExtractTextAsync(pdfPath);
+
+        string baseName = Path.GetFileNameWithoutExtension(pdfPath);
+        string directory = Path.GetDirectoryName(pdfPath) ?? ".";
+
+        string fullOutputPath = Path.Combine(directory, $"{baseName}_full_content.txt");
+        string firstPageOutputPath = Path.Combine(directory, $"{baseName}_page1_content.txt");
+
+        await File.WriteAllTextAsync(fullOutputPath, result.FullContent);
+        await File.WriteAllTextAsync(firstPageOutputPath, result.FirstPageContent);
+
+        Console.WriteLine($"\n[✓] Contenido completo guardado en: {fullOutputPath}");
+        Console.WriteLine($"[✓] Contenido primera página guardado en: {firstPageOutputPath}");
+        Console.WriteLine($"\n--- Contenido completo ({result.FullContent.Length} caracteres) ---");
+        Console.WriteLine(result.FullContent);
+        Console.WriteLine($"\n--- Contenido primera página ({result.FirstPageContent.Length} caracteres) ---");
+        Console.WriteLine(result.FirstPageContent);
+        return;
+    }
+
+    // Mode 2: Batch processing from configured folder (existing flow)
+    var docTypes = config.GetSection("DocumentTypes").Get<List<DocumentTypeConfig>>() ?? new List<DocumentTypeConfig>();
     var skService = new SemanticKernelService(config);
     var pdfProcessor = new PdfProcessor(docIntellService, skService, docTypes);
 

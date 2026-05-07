@@ -27,8 +27,8 @@ public class PdfProcessor
         string directory = Path.GetDirectoryName(pdfPath) ?? string.Empty;
         string baseName = Path.GetFileNameWithoutExtension(pdfPath);
 
-        string extractedTxtPath = Path.Combine(directory, $"{baseName}_extracted.txt");
-        string cleanedTxtPath = Path.Combine(directory, $"{baseName}_cleaned.txt");
+        string extractedFullPath = Path.Combine(directory, $"{baseName}_extracted_full.txt");
+        string extractedFirstPagePath = Path.Combine(directory, $"{baseName}_extracted_page1.txt");
         string analysisJsonPath = Path.Combine(directory, $"{baseName}_analysis.json");
         string reportFilePath = Path.Combine(directory, "processing_report.txt");
 
@@ -43,30 +43,22 @@ public class PdfProcessor
             var totalSw = Stopwatch.StartNew();
             var stepSw = new Stopwatch();
 
-            // 1. Extract text
+            // 1. Extract and structure text using Document Intelligence
             stepSw.Start();
-            var (fullText, firstPageText) = await _docIntellService.ExtractTextAsync(pdfPath);
+            var extractionResult = await _docIntellService.ExtractTextAsync(pdfPath);
             stepSw.Stop();
             var extractionTime = stepSw.Elapsed;
             
-            await File.WriteAllTextAsync(extractedTxtPath, fullText);
-            Console.WriteLine($"[✓] Guardado texto crudo (completo) en: {Path.GetFileName(extractedTxtPath)}");
+            // Save both outputs
+            await File.WriteAllTextAsync(extractedFullPath, extractionResult.FullContent);
+            Console.WriteLine($"[✓] Guardado contenido completo estructurado en: {Path.GetFileName(extractedFullPath)}");
 
-            // 1.5 Pre-clean text with C# (solo primera página)
+            await File.WriteAllTextAsync(extractedFirstPagePath, extractionResult.FirstPageContent);
+            Console.WriteLine($"[✓] Guardado contenido primera página en: {Path.GetFileName(extractedFirstPagePath)}");
+
+            // 2. Classify and validate document (using first page content)
             stepSw.Restart();
-            string preCleanedText = Utils.TextCleaner.PreClean(firstPageText);
-
-            // 2. Clean text
-            string cleanedText = await _skService.CleanTextAsync(preCleanedText);
-            stepSw.Stop();
-            var cleaningTime = stepSw.Elapsed;
-            
-            await File.WriteAllTextAsync(cleanedTxtPath, cleanedText);
-            Console.WriteLine($"[✓] Guardado texto limpio en: {Path.GetFileName(cleanedTxtPath)}");
-
-            // 3. Classify and validate document
-            stepSw.Restart();
-            var classificationResult = await _skService.ClassifyDocumentAsync(cleanedText, _documentTypes);
+            var classificationResult = await _skService.ClassifyDocumentAsync(extractionResult.FirstPageContent, _documentTypes);
             stepSw.Stop();
             var classificationTime = stepSw.Elapsed;
             
@@ -82,14 +74,14 @@ public class PdfProcessor
 
             TimeSpan extractionConceptsTime = TimeSpan.Zero;
 
-            // 4. Extract concepts if classified
+            // 3. Extract concepts if classified
             if (identifiedType != "Unclassified")
             {
                 var docTypeConfig = _documentTypes.FirstOrDefault(dt => dt.Name.Equals(identifiedType, StringComparison.OrdinalIgnoreCase));
                 if (docTypeConfig != null)
                 {
                     stepSw.Restart();
-                    var analysisResult = await _skService.ExtractConceptsAsync(cleanedText, fileName, identifiedType, docTypeConfig.ExtractionPrompt);
+                    var analysisResult = await _skService.ExtractConceptsAsync(extractionResult.FirstPageContent, fileName, identifiedType, docTypeConfig.ExtractionPrompt);
                     stepSw.Stop();
                     extractionConceptsTime = stepSw.Elapsed;
 
@@ -124,7 +116,7 @@ public class PdfProcessor
             var totalTime = totalSw.Elapsed;
 
             // Generate report
-            string reportLine = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Documento: {fileName} | Extracción: {extractionTime.TotalSeconds:F2}s | Limpieza: {cleaningTime.TotalSeconds:F2}s | Clasificación: {classificationTime.TotalSeconds:F2}s | Extracción LLM: {extractionConceptsTime.TotalSeconds:F2}s | Total: {totalTime.TotalSeconds:F2}s\n";
+            string reportLine = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Documento: {fileName} | Extracción: {extractionTime.TotalSeconds:F2}s | Clasificación: {classificationTime.TotalSeconds:F2}s | Extracción LLM: {extractionConceptsTime.TotalSeconds:F2}s | Total: {totalTime.TotalSeconds:F2}s\n";
             await File.AppendAllTextAsync(reportFilePath, reportLine);
             Console.WriteLine($"[✓] Reporte de tiempos actualizado en: {Path.GetFileName(reportFilePath)}");
         }
